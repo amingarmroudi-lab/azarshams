@@ -1,0 +1,10 @@
+{
+  "name": "Azarshams Inventory",
+  "description": "Simple and efficient warehouse inventory management system designed for Azarshams with large buttons, barcode scanner, and Excel export.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
