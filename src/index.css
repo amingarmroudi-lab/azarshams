@@ -54,3 +54,107 @@ button:focus, input:focus, select:focus {
 .animate-flash-success {
   animation: flash-green 0.6s ease-out;
 }
+
+@media print {
+  /* Hide typical web components during print */
+  header, 
+  #app-tabs, 
+  .print\:hidden, 
+  #new-invoice-action-btn,
+  .print-action-bar,
+  /* Hide notification alert banner / toasts */
+  .bg-emerald-100,
+  .bg-rose-100,
+  .bg-sky-100,
+  div[role="alert"],
+  /* Hide other non-invoice elements */
+  #tab-btn-list, 
+  #tab-btn-add, 
+  #tab-btn-reports, 
+  #tab-btn-invoices,
+  .modal-overlay,
+  button {
+    display: none !important;
+  }
+
+  /* Reset main layouts to fit standard A4 sizes */
+  body, html {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    font-size: 10pt !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+  }
+
+  /* Ensure our card container is full width and borderless during print */
+  .printable-invoice-wrapper {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    background: transparent !important;
+  }
+
+  .print-invoice-box {
+    border: 1px solid #cbd5e1 !important;
+    box-shadow: none !important;
+    padding: 12px 14px !important;
+    margin: 0 auto !important;
+    background: #ffffff !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    font-size: 10pt !important;
+    line-height: 1.4 !important;
+  }
+
+  /* Compact header height */
+  .print-invoice-box .flex-row {
+    padding-bottom: 6px !important;
+    margin-bottom: 6px !important;
+    gap: 4px !important;
+  }
+
+  /* Row layouts and grids on print forces side-by-side positioning for A4 format */
+  .print-invoice-box .grid {
+    gap: 8px !important;
+  }
+
+  /* High contrast dark text for sharp print results */
+  .text-indigo-900, .text-indigo-950, .text-slate-900, .text-slate-800 {
+    color: #000000 !important;
+  }
+
+  .text-slate-500, .text-slate-600 {
+    color: #334155 !important;
+  }
+
+  /* Compact padding on item lists inside invoice */
+  .print-invoice-box table th,
+  .print-invoice-box table td {
+    padding: 4px 6px !important;
+    font-size: 9.5pt !important;
+    border-color: #cbd5e1 !important;
+  }
+
+  /* Shrink margins of blocks */
+  .print-invoice-box .space-y-6 > :not([hidden]) ~ :not([hidden]) {
+    --tw-space-y-reverse: 0 !important;
+    margin-top: 10px !important;
+    margin-bottom: 0 !important;
+  }
+
+  /* Adjust signature margins and spacing */
+  .print-invoice-box .pt-8 {
+    padding-top: 12px !important;
+  }
+
+  /* Force background colors to print if checked by user */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}

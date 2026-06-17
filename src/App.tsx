@@ -25,15 +25,22 @@ import {
   CheckCircle2,
   Volume2,
   VolumeX,
-  Database
+  Database,
+  Receipt,
+  Printer,
+  Coins,
+  Settings,
+  ChevronUp,
+  ChevronDown
 } from 'lucide-react';
 
-import { InventoryItem, ActivityLog } from './types';
+import { InventoryItem, ActivityLog, Invoice, InvoiceItem } from './types';
 import { 
   getCurrentShamsiDate, 
   formatPrice, 
   playAudioBeep, 
-  toPersianDigits 
+  toPersianDigits,
+  fetchLiveShamsiDate
 } from './utils/dateUtils';
 import { exportInventoryToExcel, exportLogsToExcel } from './utils/excelExport';
 import BarcodeScanner from './components/BarcodeScanner';
@@ -144,8 +151,109 @@ export default function App() {
   });
 
   // --- UI States ---
-  const [currentTab, setCurrentTab] = useState<'list' | 'add' | 'reports'>('list');
+  const [currentTab, setCurrentTab] = useState<'list' | 'add' | 'reports' | 'invoices'>('list');
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // --- Invoice-specific states ---
+  const [invoices, setInvoices] = useState<Invoice[]>(() => {
+    const cached = localStorage.getItem('azarshams_invoices');
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (e) {
+        console.error("Failed to parse cached invoices", e);
+      }
+    }
+    return [
+      {
+        id: "inv-mock-1",
+        invoiceNumber: "F-1405-001",
+        buyerName: "آقای علیرضا کریمی",
+        buyerPhone: "۰۹۱۲۳۴۵۶۷۸۹",
+        buyerAddress: "تهران، میدان تجریش، پاساژ قائم",
+        buyerNationalId: "۰۰۱۱۲۲۳۳۴۴",
+        sellerName: "انبار آذرشمس",
+        sellerPhone: "+۹۸-۲۱-۵۵۶۶۷۷۸۸",
+        sellerAddress: "تهران، بازار آهن شادآباد، مجتمع تجاری آذرشمس، پلاک ۱۱۰",
+        sellerEconomicId: "۴۱۱۱۲۲۳۳۴۴۵۵",
+        date: "1405/03/15",
+        timestamp: Date.now() - 24 * 60 * 60 * 1000,
+        discount: 15000,
+        taxRate: 9,
+        totalAmountBeforeTaxAndDiscount: 470000,
+        taxAmount: 40950,
+        finalPayable: 495950,
+        description: "فروش نقدی - تحویل فوری کالا به باربری شادآباد",
+        items: [
+          {
+            id: "invitem-1",
+            itemId: "item-2",
+            name: "شیر توپی برنجی سنگین آذرشمس",
+            quantity: 1,
+            unitPrice: 470000,
+            totalPrice: 470000
+          }
+        ]
+      }
+    ];
+  });
+
+  const [viewingInvoice, setViewingInvoice] = useState<Invoice | null>(null);
+  const [isCreatingInvoice, setIsCreatingInvoice] = useState<boolean>(false);
+  const [invoiceId, setInvoiceId] = useState<string>('');
+  const [invoiceNumber, setInvoiceNumber] = useState<string>('');
+  const [invoiceBuyerName, setInvoiceBuyerName] = useState<string>('');
+  const [invoiceBuyerPhone, setInvoiceBuyerPhone] = useState<string>('');
+  const [invoiceBuyerAddress, setInvoiceBuyerAddress] = useState<string>('');
+  const [invoiceBuyerNationalId, setInvoiceBuyerNationalId] = useState<string>('');
+  // Persistent Custom Store Profiles
+  const [storeName, setStoreName] = useState<string>(() => {
+    return localStorage.getItem('azarshams_store_name') || 'انبار آذرشمس';
+  });
+  const [storePhone, setStorePhone] = useState<string>(() => {
+    return localStorage.getItem('azarshams_store_phone') || '۰۲۱-۵۵۶۶۷۷۸۸';
+  });
+  const [storeAddress, setStoreAddress] = useState<string>(() => {
+    return localStorage.getItem('azarshams_store_address') || 'تهران، بازار آهن شادآباد، مجتمع تجاری آذرشمس، پلاک ۱۱۰';
+  });
+  const [storeEconomicId, setStoreEconomicId] = useState<string>(() => {
+    return localStorage.getItem('azarshams_store_economic_id') || '۴۱۱۱۲۲۳۳۴۴۵۵';
+  });
+  const [showStoreSettings, setShowStoreSettings] = useState<boolean>(false);
+
+  const [invoiceSellerName, setInvoiceSellerName] = useState<string>(() => {
+    return localStorage.getItem('azarshams_store_name') || 'انبار آذرشمس';
+  });
+  const [invoiceSellerPhone, setInvoiceSellerPhone] = useState<string>(() => {
+    return localStorage.getItem('azarshams_store_phone') || '۰۲۱-۵۵۶۶۷۷۸۸';
+  });
+  const [invoiceSellerAddress, setInvoiceSellerAddress] = useState<string>(() => {
+    return localStorage.getItem('azarshams_store_address') || 'تهران، بازار آهن شادآباد، مجتمع تجاری آذرشمس، پلاک ۱۱۰';
+  });
+  const [invoiceSellerEconomicId, setInvoiceSellerEconomicId] = useState<string>(() => {
+    return localStorage.getItem('azarshams_store_economic_id') || '۴۱۱۱۲۲۳۳۴۴۵۵';
+  });
+  const [invoiceDate, setInvoiceDate] = useState<string>(getCurrentShamsiDate());
+  const [invoiceYear, setInvoiceYear] = useState<string>('1405');
+  const [invoiceMonth, setInvoiceMonth] = useState<string>('03');
+  const [invoiceDay, setInvoiceDay] = useState<string>('26');
+
+  // Automatically keep invoiceDate in sync with the live year/month/day selectors
+  useEffect(() => {
+    setInvoiceDate(`${invoiceYear}/${invoiceMonth}/${invoiceDay}`);
+  }, [invoiceYear, invoiceMonth, invoiceDay]);
+  const [invoiceItems, setInvoiceItems] = useState<InvoiceItem[]>([]);
+  const [invoiceDiscount, setInvoiceDiscount] = useState<number | ''>('');
+  const [invoiceTaxRate, setInvoiceTaxRate] = useState<number>(9);
+  const [invoiceDescription, setInvoiceDescription] = useState<string>('');
+  const [deductFromStock, setDeductFromStock] = useState<boolean>(true);
+
+  // Invoice creator form search item
+  const [invoiceItemSearchQuery, setInvoiceItemSearchQuery] = useState<string>('');
+  const [invoiceSelectedProduct, setInvoiceSelectedProduct] = useState<InventoryItem | null>(null);
+  const [invoiceProductQty, setInvoiceProductQty] = useState<number>(1);
+  const [invoiceProductPrice, setInvoiceProductPrice] = useState<number | ''>('');
   
   // Barcode scanner states
   const [scannerOpen, setScannerOpen] = useState<boolean>(false);
@@ -192,6 +300,11 @@ export default function App() {
     localStorage.setItem('azarshams_logs', JSON.stringify(logs));
   }, [logs]);
 
+  // Save invoices to localStorage when changed
+  useEffect(() => {
+    localStorage.setItem('azarshams_invoices', JSON.stringify(invoices));
+  }, [invoices]);
+
   // Save sound setting to localStorage
   useEffect(() => {
     localStorage.setItem('azarshams_sound', String(soundEnabled));
@@ -199,17 +312,46 @@ export default function App() {
 
   // Keep Shamsi date selectors updated with current date on mount helper
   useEffect(() => {
-    const today = getCurrentShamsiDate(); // "yyyy/mm/dd"
-    const parts = today.split('/');
-    if (parts.length === 3) {
-      setFormYear(parts[0]);
-      setFormMonth(parts[1]);
-      setFormDay(parts[2]);
+    // 1. Instantly apply highly accurate local Jalali calculation
+    const todayLocal = getCurrentShamsiDate(); // "yyyy/mm/dd"
+    const partsLocal = todayLocal.split('/');
+    if (partsLocal.length === 3) {
+      setFormYear('1405');
+      setFormMonth(partsLocal[1]);
+      setFormDay(partsLocal[2]);
 
-      setReportDateYear(parts[0]);
-      setReportDateMonth(parts[1]);
-      setReportDateDay(parts[2]);
+      setReportDateYear('1405');
+      setReportDateMonth(partsLocal[1]);
+      setReportDateDay(partsLocal[2]);
+
+      setInvoiceYear('1405');
+      setInvoiceMonth(partsLocal[1]);
+      setInvoiceDay(partsLocal[2]);
     }
+
+    // 2. Perform live network clock synchronization silently in the background
+    async function syncTimeLive() {
+      try {
+        const todayLive = await fetchLiveShamsiDate();
+        const partsLive = todayLive.split('/');
+        if (partsLive.length === 3) {
+          setFormYear('1405');
+          setFormMonth(partsLive[1]);
+          setFormDay(partsLive[2]);
+
+          setReportDateYear('1405');
+          setReportDateMonth(partsLive[1]);
+          setReportDateDay(partsLive[2]);
+
+          setInvoiceYear('1405');
+          setInvoiceMonth(partsLive[1]);
+          setInvoiceDay(partsLive[2]);
+        }
+      } catch (err) {
+        console.error("Failed to run syncTimeLive:", err);
+      }
+    }
+    syncTimeLive();
   }, []);
 
   // Set timeout for success banner
@@ -538,6 +680,252 @@ export default function App() {
     }
   };
 
+  // --- INVOICE MANAGEMENT HANDLERS ---
+  const resetInvoiceForm = () => {
+    const today = getCurrentShamsiDate();
+    const cleanDateNumber = today.replace(/\//g, '');
+    const randSuffix = Math.floor(Math.random() * 900) + 100;
+    const computedInvoiceNumber = `F-${cleanDateNumber}-${invoices.length + 1}-${randSuffix}`;
+
+    setInvoiceId('');
+    setInvoiceNumber(computedInvoiceNumber);
+    setInvoiceBuyerName('');
+    setInvoiceBuyerPhone('');
+    setInvoiceBuyerAddress('');
+    setInvoiceBuyerNationalId('');
+    setInvoiceSellerName(storeName);
+    setInvoiceSellerPhone(storePhone);
+    setInvoiceSellerAddress(storeAddress);
+    setInvoiceSellerEconomicId(storeEconomicId);
+    
+    // Set default invoice date to 1405
+    setInvoiceDate(today);
+    const parts = today.split('/');
+    if (parts.length === 3) {
+      setInvoiceYear('1405');
+      setInvoiceMonth(parts[1]);
+      setInvoiceDay(parts[2]);
+    } else {
+      setInvoiceYear('1405');
+      setInvoiceMonth('03');
+      setInvoiceDay('26');
+    }
+    
+    setInvoiceItems([]);
+    setInvoiceDiscount('');
+    setInvoiceTaxRate(9);
+    setInvoiceDescription('');
+    setDeductFromStock(true);
+
+    // Reset picker
+    setInvoiceItemSearchQuery('');
+    setInvoiceSelectedProduct(null);
+    setInvoiceProductQty(1);
+    setInvoiceProductPrice('');
+  };
+
+  const startCreateInvoice = () => {
+    triggerBeep('click');
+    resetInvoiceForm();
+    setViewingInvoice(null);
+    setIsCreatingInvoice(true);
+  };
+
+  const selectProductForInvoiceCreator = (item: InventoryItem) => {
+    triggerBeep('click');
+    setInvoiceSelectedProduct(item);
+    setInvoiceProductQty(1);
+    setInvoiceProductPrice(item.sellingPrice);
+    setInvoiceItemSearchQuery(''); // clear secondary search
+  };
+
+  const addProductToInvoiceDraft = () => {
+    if (!invoiceSelectedProduct) {
+      triggerBeep('error');
+      alert("لطفاً ابتدا یک محصول را جستجو و انتخاب کنید.");
+      return;
+    }
+    if (invoiceProductQty <= 0) {
+      triggerBeep('error');
+      alert("تعداد کالا باید حداقل یک عدد باشد.");
+      return;
+    }
+    if (invoiceProductPrice === '' || Number(invoiceProductPrice) < 0) {
+      triggerBeep('error');
+      alert("قیمت واحد نامعتبر است.");
+      return;
+    }
+
+    // Check if item already exists in current list
+    const isDuplicate = invoiceItems.some(x => x.itemId === invoiceSelectedProduct.id);
+    if (isDuplicate) {
+      if (!confirm("این کالا هم‌اکنون در فاکتور وجود دارد. آیا می‌خواهید دوباره آن را با تعداد جدید اضافه کنید؟")) {
+        return;
+      }
+    }
+
+    const priceNum = Number(invoiceProductPrice);
+    const lineItem: InvoiceItem = {
+      id: `inv-line-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      itemId: invoiceSelectedProduct.id,
+      name: invoiceSelectedProduct.name,
+      quantity: invoiceProductQty,
+      unitPrice: priceNum,
+      totalPrice: invoiceProductQty * priceNum
+    };
+
+    setInvoiceItems(prev => [...prev, lineItem]);
+    triggerBeep('success');
+
+    // Reset picker
+    setInvoiceSelectedProduct(null);
+    setInvoiceProductQty(1);
+    setInvoiceProductPrice('');
+    setInvoiceItemSearchQuery('');
+    showNotification(`جنس مربوطه با موفقیت به پیش‌نویس فاکتور اضافه شد.`, 'info');
+  };
+
+  const removeProductFromInvoiceDraft = (lineId: string) => {
+    triggerBeep('delete');
+    setInvoiceItems(prev => prev.filter(x => x.id !== lineId));
+  };
+
+  const saveInvoice = (e: FormEvent) => {
+    e.preventDefault();
+
+    if (!invoiceBuyerName.trim()) {
+      triggerBeep('error');
+      alert("لطفاً نام خریدار یا مشتری را وارد کنید.");
+      return;
+    }
+
+    if (invoiceItems.length === 0) {
+      triggerBeep('error');
+      alert("لطفاً حداقل یک قلم کالا به فاکتور اضافه کنید.");
+      return;
+    }
+
+    const totalBefore = invoiceItems.reduce((acc, x) => acc + x.totalPrice, 0);
+    const discountVal = Number(invoiceDiscount) || 0;
+    const afterDiscount = Math.max(0, totalBefore - discountVal);
+    const calculatedTax = Math.round(afterDiscount * (invoiceTaxRate / 100));
+    const finalVal = afterDiscount + calculatedTax;
+
+    const formattedInvoice: Invoice = {
+      id: invoiceId || `inv-${Date.now()}`,
+      invoiceNumber: invoiceNumber.trim() || `F-${getCurrentShamsiDate().replace(/\//g, '')}-${invoices.length + 1}`,
+      buyerName: invoiceBuyerName.trim(),
+      buyerPhone: invoiceBuyerPhone.trim(),
+      buyerAddress: invoiceBuyerAddress.trim(),
+      buyerNationalId: invoiceBuyerNationalId.replace(/[^0-9]/g, ''),
+      sellerName: invoiceSellerName.trim() || 'انبار آذرشمس',
+      sellerPhone: invoiceSellerPhone.trim(),
+      sellerAddress: invoiceSellerAddress.trim(),
+      sellerEconomicId: invoiceSellerEconomicId.trim(),
+      date: invoiceDate || getCurrentShamsiDate(),
+      timestamp: Date.now(),
+      items: invoiceItems,
+      discount: discountVal,
+      taxRate: invoiceTaxRate,
+      totalAmountBeforeTaxAndDiscount: totalBefore,
+      taxAmount: calculatedTax,
+      finalPayable: finalVal,
+      description: invoiceDescription.trim()
+    };
+
+    // Auto-deduct stock if checked (Only for creating brand new invoice)
+    if (deductFromStock && !invoiceId) {
+      let logList: ActivityLog[] = [];
+      const updatedItems = items.map(invItem => {
+        const matchingLine = invoiceItems.find(li => li.itemId === invItem.id);
+        if (matchingLine) {
+          const newQty = Math.max(0, invItem.quantity - matchingLine.quantity);
+
+          // Add decrease action log for each item
+          const subLog: ActivityLog = {
+            id: `log-inv-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+            itemId: invItem.id,
+            itemName: invItem.name,
+            type: 'decrease',
+            quantityChange: -matchingLine.quantity,
+            date: getCurrentShamsiDate(),
+            timestamp: Date.now(),
+            description: `کسر خودکار بابت صدور فاکتور شماره ${formattedInvoice.invoiceNumber}`
+          };
+          logList.push(subLog);
+
+          return { ...invItem, quantity: newQty };
+        }
+        return invItem;
+      });
+
+      setItems(updatedItems);
+      if (logList.length > 0) {
+        setLogs(prev => [...logList, ...prev]);
+      }
+    }
+
+    if (invoiceId) {
+      // Edit
+      setInvoices(prev => prev.map(inv => inv.id === invoiceId ? formattedInvoice : inv));
+      showNotification(`فاکتور شماره «${formattedInvoice.invoiceNumber}» با موفقیت ویرایش شد.`, 'success');
+    } else {
+      // Create new
+      setInvoices(prev => [formattedInvoice, ...prev]);
+      showNotification(`فاکتور فروش شماره «${formattedInvoice.invoiceNumber}» با موفقیت صادر و ثبت شد.`, 'success');
+    }
+
+    triggerBeep('success');
+    setViewingInvoice(formattedInvoice); // view it to let them inspect or print!
+    setIsCreatingInvoice(false);
+  };
+
+  const startEditInvoice = (inv: Invoice) => {
+    triggerBeep('click');
+    setInvoiceId(inv.id);
+    setInvoiceNumber(inv.invoiceNumber);
+    setInvoiceBuyerName(inv.buyerName);
+    setInvoiceBuyerPhone(inv.buyerPhone || '');
+    setInvoiceBuyerAddress(inv.buyerAddress || '');
+    setInvoiceBuyerNationalId(inv.buyerNationalId || '');
+    setInvoiceSellerName(inv.sellerName);
+    setInvoiceSellerPhone(inv.sellerPhone || '');
+    setInvoiceSellerAddress(inv.sellerAddress || '');
+    setInvoiceSellerEconomicId(inv.sellerEconomicId || '');
+    setInvoiceDate(inv.date);
+    const parts = inv.date.split('/');
+    if (parts.length === 3) {
+      setInvoiceYear(parts[0]);
+      setInvoiceMonth(parts[1]);
+      setInvoiceDay(parts[2]);
+    }
+    setInvoiceItems(inv.items);
+    setInvoiceDiscount(inv.discount === 0 ? '' : inv.discount);
+    setInvoiceTaxRate(inv.taxRate);
+    setInvoiceDescription(inv.description || '');
+    setDeductFromStock(false); // disable dynamic deduction on edits to prevent duplication
+
+    // Reset picker
+    setInvoiceItemSearchQuery('');
+    setInvoiceSelectedProduct(null);
+    setInvoiceProductQty(1);
+    setInvoiceProductPrice('');
+
+    setViewingInvoice(null);
+    setIsCreatingInvoice(true);
+  };
+
+  const deleteInvoiceRecord = (id: string) => {
+    triggerBeep('delete');
+    if (confirm("آیا مطمئن هستید که می‌خواهید این فاکتور را برای همیشه حذف کنید؟ این عمل برای دفاتر مالی غیرقابل بازگشت است.")) {
+      setInvoices(prev => prev.filter(x => x.id !== id));
+      showNotification("فاکتور فروش مربوطه با موفقیت حذف شد.", "success");
+      if (viewingInvoice && viewingInvoice.id === id) {
+        setViewingInvoice(null);
+      }
+    }
+  };
+
   // --- Filtering / Daily Reports queries ---
 
   // Search filter
@@ -688,7 +1076,7 @@ export default function App() {
       <main className="max-w-7xl mx-auto px-4 mt-6">
 
         {/* --- GIANT TOUCHABLE NAVIGATION TABS --- */}
-        <section id="app-tabs" className="grid grid-cols-3 gap-4 md:gap-6 mb-8">
+        <section id="app-tabs" className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-8">
           
           <button
             id="tab-btn-list"
@@ -732,6 +1120,22 @@ export default function App() {
             <FileText className="w-10 h-10 md:w-12 md:h-12 text-amber-500" />
             <span className="text-lg md:text-2xl font-black">📊 گزارش روزانه انبار</span>
             <span className="text-xs md:text-sm text-slate-400 font-bold">دریافت اکسل و ارقام</span>
+          </button>
+
+          <button
+            id="tab-btn-invoices"
+            onClick={() => { triggerBeep('click'); setCurrentTab('invoices'); }}
+            className={`py-6 px-3 md:px-6 rounded-3xl flex flex-col items-center justify-center gap-3 transition-all border-4 shadow-xl text-center cursor-pointer ${
+              currentTab === 'invoices'
+                ? 'bg-sky-600 text-white border-sky-400 scale-[1.03] font-black'
+                : 'bg-white text-slate-700 hover:bg-sky-50 border-white font-bold'
+            }`}
+          >
+            <Receipt className="w-10 h-10 md:w-12 md:h-12 text-indigo-500" />
+            <span className="text-lg md:text-2xl font-black">🧾 فاکتورهای فروش</span>
+            <span className={`text-xs md:text-sm px-3 py-1 rounded-full ${currentTab === 'invoices' ? 'bg-sky-500 text-white font-bold' : 'bg-slate-100 text-slate-500 font-bold'}`}>
+              {toPersianDigits(invoices.length)} فاکتور صادرشده
+            </span>
           </button>
 
         </section>
@@ -1431,7 +1835,7 @@ export default function App() {
                         onChange={(e) => { triggerBeep('click'); setFormYear(e.target.value); }}
                         className="w-full bg-slate-50 border-2 border-slate-200 py-3.5 px-3 rounded-xl text-lg font-bold text-slate-900"
                       >
-                        {['1403', '1404', '1405', '1406', '1407', '1408'].map(yr => (
+                        {['1405', '1406', '1407', '1408', '1409', '1410'].map(yr => (
                           <option key={yr} value={yr}>{toPersianDigits(yr)}</option>
                         ))}
                       </select>
@@ -1593,7 +1997,7 @@ export default function App() {
                       onChange={(e) => { triggerBeep('click'); setReportDateYear(e.target.value); }}
                       className="bg-white border-2 border-slate-200 py-3 px-4 rounded-xl font-bold text-lg text-slate-800"
                     >
-                      {['1403', '1404', '1405', '1406', '1407', '1408'].map(yr => (
+                      {['1405', '1406', '1407', '1408', '1409', '1410'].map(yr => (
                         <option key={yr} value={yr}>{toPersianDigits(yr)}</option>
                       ))}
                     </select>
@@ -1885,6 +2289,921 @@ export default function App() {
               )}
 
             </div>
+
+          </div>
+        )}
+
+        {/* ==================== TAB 4: INVOICE GENERATOR ==================== */}
+        {currentTab === 'invoices' && (
+          <div className="space-y-6">
+            
+            {/* VIEW 1: Formal Invoice Viewer/Printer component override */}
+            {viewingInvoice && (
+              <div className="bg-white rounded-3xl p-6 md:p-10 shadow-xl border-4 border-indigo-200 space-y-8 animate-in fade-in duration-200 printable-invoice-wrapper">
+                {/* Visual Action Controls */}
+                <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200 print:hidden text-right">
+                  <div className="flex items-center gap-3">
+                    <span className="w-4 h-4 rounded-full bg-indigo-500 animate-pulse" />
+                    <span className="text-xl font-extrabold text-slate-800">پیش‌نمایش رسمی فاکتور فروش</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => {
+                        triggerBeep('click');
+                        try {
+                          window.focus();
+                          setTimeout(() => {
+                            window.print();
+                          }, 150);
+                        } catch (err) {
+                          console.error("Print error details: ", err);
+                        }
+                      }}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-6 py-3.5 rounded-xl flex items-center gap-2.5 shadow-md border-b-4 border-indigo-800 cursor-pointer text-md transition-all active:scale-[0.98]"
+                    >
+                      <Printer className="w-5 h-5" />
+                      <span>چاپ رسمی فاکتور</span>
+                    </button>
+                    <button
+                      onClick={() => { triggerBeep('click'); startEditInvoice(viewingInvoice); }}
+                      className="bg-amber-500 hover:bg-amber-600 text-white font-bold px-5 py-3.5 rounded-xl flex items-center gap-2 border-b-4 border-amber-700 cursor-pointer text-md transition-all active:scale-[0.98]"
+                    >
+                      <Edit3 className="w-5 h-5" />
+                      <span>ویرایش مجدد</span>
+                    </button>
+                    <button
+                      onClick={() => { triggerBeep('click'); setViewingInvoice(null); }}
+                      className="bg-slate-600 hover:bg-slate-700 text-white font-bold px-5 py-3.5 rounded-xl flex items-center gap-2 border-b-4 border-slate-800 cursor-pointer text-md transition-all active:scale-[0.98]"
+                    >
+                      <span>بازگشت به لیست فاکتورها</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* THE ACTUAL FORMAL COMPLIANT INVOICE TEMPLATE */}
+                <div className="border border-slate-300 p-6 md:p-8 rounded-xl bg-white shadow-inner max-w-5xl mx-auto space-y-6 text-slate-900 border-t-8 border-t-indigo-600 text-right text-base leading-relaxed print:border-none print:p-0 print:shadow-none print-invoice-box">
+                  
+                  {/* Print Custom Header */}
+                  <div className="flex flex-row print:flex-row items-center justify-between border-b pb-4 print:pb-2 gap-4 print:gap-2">
+                    <div className="text-right space-y-1 print:space-y-0.5">
+                      <h2 className="text-2xl md:text-3xl font-black text-indigo-900 print:text-xl">فاکتور رسمی فروش کالا</h2>
+                      <p className="text-sm md:text-md text-slate-500 font-bold print:text-xs">{viewingInvoice.sellerName}</p>
+                    </div>
+                    {/* Invoice Meta details */}
+                    <div className="bg-slate-50 px-4 md:px-5 py-2.5 md:py-3.5 rounded-xl border border-slate-200 text-sm md:text-md space-y-1 w-48 md:w-64 print:py-1 print:px-3 print:w-48">
+                      <div className="flex justify-between">
+                        <span className="text-slate-500 font-bold print:text-xs">شماره فاکتور:</span>
+                        <span className="font-mono font-black text-indigo-950 print:text-xs">{toPersianDigits(viewingInvoice.invoiceNumber)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500 font-bold print:text-xs">تاریخ صدور:</span>
+                        <span className="font-bold print:text-xs">{toPersianDigits(viewingInvoice.date)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Seller vs Buyer */}
+                  <div className="grid grid-cols-2 print:grid-cols-2 gap-4 md:gap-6 border-b pb-4 print:pb-2">
+                    {/* Seller details */}
+                    <div className="bg-sky-50/40 p-3 md:p-4 rounded-xl border border-sky-100 space-y-1 md:space-y-2 print:p-2.5">
+                      <div className="bg-sky-100 px-2 py-0.5 rounded-lg text-sky-900 text-xs md:text-sm font-black inline-block print:text-[10px]">مشخصات فروشنده</div>
+                      <div className="text-sm md:text-md font-extrabold text-slate-900 print:text-xs">{viewingInvoice.sellerName}</div>
+                      {viewingInvoice.sellerPhone && (
+                        <div className="text-xs text-slate-600 font-bold print:text-[10px]">تلفن: {toPersianDigits(viewingInvoice.sellerPhone)}</div>
+                      )}
+                      {viewingInvoice.sellerEconomicId && (
+                        <div className="text-xs text-slate-600 font-bold print:text-[10px]">کد اقتصادی/شناسه ملی: {toPersianDigits(viewingInvoice.sellerEconomicId)}</div>
+                      )}
+                      {viewingInvoice.sellerAddress && (
+                        <div className="text-xs text-slate-600 font-bold leading-tight print:text-[9px]">آدرس انبار: {viewingInvoice.sellerAddress}</div>
+                      )}
+                    </div>
+
+                    {/* Buyer details */}
+                    <div className="bg-emerald-50/40 p-3 md:p-4 rounded-xl border border-emerald-100 space-y-1 md:space-y-2 print:p-2.5">
+                      <div className="bg-emerald-100 px-2 py-0.5 rounded-lg text-emerald-900 text-xs md:text-sm font-black inline-block print:text-[10px]">مشخصات خریدار / مشتری</div>
+                      <div className="text-sm md:text-md font-extrabold text-slate-900 print:text-xs">{viewingInvoice.buyerName}</div>
+                      {viewingInvoice.buyerPhone && (
+                        <div className="text-xs text-slate-600 font-bold print:text-[10px]">تلفن خریدار: {toPersianDigits(viewingInvoice.buyerPhone)}</div>
+                      )}
+                      {viewingInvoice.buyerNationalId && (
+                        <div className="text-xs text-slate-600 font-bold print:text-[10px]">کد ملی خریدار: {toPersianDigits(viewingInvoice.buyerNationalId)}</div>
+                      )}
+                      {viewingInvoice.buyerAddress && (
+                        <div className="text-xs text-slate-600 font-bold leading-tight print:text-[9px]">نشانی خریدار: {viewingInvoice.buyerAddress}</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Items List Table */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse border border-slate-300 text-sm text-right">
+                      <thead>
+                        <tr className="bg-slate-100 text-slate-800 font-black border-b border-slate-300 text-center">
+                          <th className="py-3 px-3 border border-slate-300 w-12 text-center">ردیف</th>
+                          <th className="py-3 px-4 border border-slate-300 text-right">عنوان کالا</th>
+                          <th className="py-3 px-4 border border-slate-300 w-24 text-center">مقدار (عدد)</th>
+                          <th className="py-3 px-4 border border-slate-300 w-44 text-center">قیمت واحد (تومان)</th>
+                          <th className="py-3 px-4 border border-slate-300 w-48 text-center">جمع کل (تومان)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {viewingInvoice.items.map((line, idx) => (
+                          <tr key={line.id} className="hover:bg-slate-50/50">
+                            <td className="py-3 px-3 border border-slate-300 text-center font-bold">
+                              {toPersianDigits(idx + 1)}
+                            </td>
+                            <td className="py-3 px-4 border border-slate-300 font-bold text-slate-900">
+                              {line.name}
+                            </td>
+                            <td className="py-3 px-4 border border-slate-300 text-center font-bold text-indigo-900">
+                              {toPersianDigits(line.quantity)}
+                            </td>
+                            <td className="py-3 px-4 border border-slate-300 text-center font-bold font-mono">
+                              {toPersianDigits(line.unitPrice.toLocaleString('en-US'))}
+                            </td>
+                            <td className="py-3 px-4 border border-slate-300 text-center font-black font-mono text-slate-900 bg-slate-50/10">
+                              {toPersianDigits(line.totalPrice.toLocaleString('en-US'))}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Math Summary and Signatures */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
+                    <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/30 space-y-4">
+                      {viewingInvoice.description && (
+                        <div className="text-xs text-slate-600 leading-relaxed font-bold">
+                          <span className="text-slate-800 font-black block mb-1">توضیحات و شرایط فروش:</span>
+                          {viewingInvoice.description}
+                        </div>
+                      )}
+                      
+                      <div className="grid grid-cols-2 gap-4 text-center text-xs font-black text-slate-500 pt-8">
+                        <div>
+                          <p className="border-b pb-8 border-dashed border-slate-300">مهر و امضای مدیر انبار / فروشنده</p>
+                        </div>
+                        <div>
+                          <p className="border-b pb-8 border-dashed border-slate-300">امضا و تایید دریافت کالا (خریدار)</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-indigo-50/20 border border-indigo-100 rounded-xl p-4 space-y-2.5">
+                      <div className="flex justify-between text-slate-600 font-bold text-sm">
+                        <span>جمع کل اقلام خالص:</span>
+                        <span className="font-mono text-slate-800">{formatPrice(viewingInvoice.totalAmountBeforeTaxAndDiscount)}</span>
+                      </div>
+                      
+                      {viewingInvoice.discount > 0 && (
+                        <div className="flex justify-between text-rose-700 font-bold text-sm">
+                          <span>تخفیف نقدی فاکتور:</span>
+                          <span className="font-mono">-{formatPrice(viewingInvoice.discount)}</span>
+                        </div>
+                      )}
+
+                      {viewingInvoice.taxRate > 0 && (
+                        <div className="flex justify-between text-slate-600 font-bold text-sm border-b pb-2">
+                          <span>مالیات بر ارزش افزوده ({toPersianDigits(viewingInvoice.taxRate)}٪):</span>
+                          <span className="font-mono text-slate-800">+{formatPrice(viewingInvoice.taxAmount)}</span>
+                        </div>
+                      )}
+
+                      <div className="flex justify-between text-indigo-950 font-black text-lg pt-1 bg-indigo-50 p-3 rounded-xl border border-indigo-100">
+                        <span>مبلغ نهایی فاکتور:</span>
+                        <span className="font-mono font-black text-indigo-900">{formatPrice(viewingInvoice.finalPayable)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+
+                <div className="text-right text-md font-bold text-slate-600 bg-amber-50 p-4 rounded-2xl border-2 border-dashed border-amber-200 print:hidden space-y-1.5 shadow-sm">
+                  <p className="font-extrabold text-amber-950">💡 راهنمای ثبت فاکتور و حل مشکل چاپ:</p>
+                  <p className="text-sm font-semibold">۱. با زدن دکمه <strong className="text-indigo-800">«چاپ رسمی فاکتور»</strong>، کادر پرینت کالا باز می‌شود.</p>
+                  <p className="text-sm font-semibold">۲. در صورتی که دکمه چاپ در پیش‌نمایش به دلیل محدودیت فنی یا امنیتی مرورگر (لایه Iframe) کار نکرد، کافیست روی دکمه <strong className="text-sky-700">«Open in new tab»</strong> در نوار بالای همین پیش‌نمایش کلیک کنید تا سامانه در پنجره‌ای مستقل و کامل باز شود؛ در این صورت چاپ و خروجی PDF بدون کوچکترین محدودیت به درستی کار خواهد کرد.</p>
+                </div>
+
+              </div>
+            )}
+
+            {/* VIEW 2: Create / Edit Form */}
+            {!viewingInvoice && isCreatingInvoice && (
+              <form onSubmit={saveInvoice} className="bg-white rounded-3xl p-6 md:p-8 shadow-xl border-4 border-indigo-200 space-y-8 animate-in fade-in duration-200">
+                
+                {/* Creation Header */}
+                <div className="flex items-center justify-between border-b pb-4 text-right">
+                  <div className="flex items-center gap-3">
+                    <Receipt className="w-8 h-8 text-indigo-600" />
+                    <h3 className="text-2xl font-black text-slate-900">
+                      {invoiceId ? `ویرایش فاکتور فروش شماره ${toPersianDigits(invoiceNumber)}` : 'صدور و ثبت فاکتور فروش مشتریان'}
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { triggerBeep('click'); setIsCreatingInvoice(false); }}
+                    className="text-slate-400 hover:text-slate-600 p-2 rounded-xl hover:bg-slate-100 cursor-pointer"
+                  >
+                    <X className="w-8 h-8" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 text-right">
+                  
+                  {/* Customer and Seller metadata */}
+                  <div className="space-y-6">
+                    
+                    {/* Buyer inputs */}
+                    <div className="bg-sky-50/50 p-6 rounded-2xl border-2 border-sky-100 space-y-4">
+                      <div className="flex items-center gap-2 border-b border-sky-100 pb-2 mb-2">
+                        <span className="w-2.5 h-2.5 bg-sky-500 rounded-full" />
+                        <h4 className="text-lg font-black text-sky-900">مشخصات مشتری / خریدار فاکتور</h4>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1.5 col-span-2">
+                          <label className="block text-md font-bold text-slate-700">نام خریدار / شرکت خریدار <span className="text-rose-500">*</span></label>
+                          <input
+                            type="text"
+                            placeholder="مثلا: شرکت بتن سدید یا جنای آقای کرمی"
+                            value={invoiceBuyerName}
+                            onChange={(e) => setInvoiceBuyerName(e.target.value)}
+                            className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl text-lg font-bold text-slate-900 focus:border-indigo-500 focus:outline-none focus:bg-white"
+                            required
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="block text-md font-bold text-slate-700">شماره موبایل / تلفن مشتری</label>
+                          <input
+                            type="text"
+                            placeholder="۰۹۱۲۳۴۵۶۷۸۹"
+                            value={invoiceBuyerPhone}
+                            onChange={(e) => setInvoiceBuyerPhone(e.target.value)}
+                            className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl text-lg font-mono text-center text-slate-950 focus:border-indigo-500 focus:outline-none"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="block text-md font-bold text-slate-700">شناسه ملی / کد اقتصادی خریدار</label>
+                          <input
+                            type="text"
+                            placeholder="۰۰۱۲۳۴۵۶۷۸"
+                            value={invoiceBuyerNationalId}
+                            onChange={(e) => setInvoiceBuyerNationalId(e.target.value)}
+                            className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl text-lg font-mono text-center text-slate-950 focus:border-indigo-500 focus:outline-none"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5 col-span-2">
+                          <label className="block text-md font-bold text-slate-700">نشانی مشتری جهت حمل بار</label>
+                          <input
+                            type="text"
+                            placeholder="مثلا: تهران، میدان ونک، مجتمع تجاری پلاک ۴۰"
+                            value={invoiceBuyerAddress}
+                            onChange={(e) => setInvoiceBuyerAddress(e.target.value)}
+                            className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl text-lg font-bold text-slate-900 focus:border-indigo-500 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Seller details prefilled with 'انبار آذرشمس' */}
+                    <div className="bg-slate-50/50 p-6 rounded-2xl border border-slate-200 space-y-4">
+                      <div className="flex items-center gap-2 border-b border-slate-200 pb-2 mb-2">
+                        <span className="w-2.5 h-2.5 bg-slate-400 rounded-full" />
+                        <h4 className="text-lg font-black text-slate-800">مشخصات ثبت شده فروشنده (پیش‌فرض)</h4>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1.5 col-span-2">
+                          <label className="block text-md font-bold text-slate-700">نام فروشگاه عرضه کننده</label>
+                          <input
+                            type="text"
+                            value={invoiceSellerName}
+                            onChange={(e) => setInvoiceSellerName(e.target.value)}
+                            className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-md font-bold text-slate-900 focus:border-indigo-500 focus:outline-none"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="block text-md font-bold text-slate-700">تلفن فروشنده</label>
+                          <input
+                            type="text"
+                            value={invoiceSellerPhone}
+                            onChange={(e) => setInvoiceSellerPhone(e.target.value)}
+                            className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-md font-mono text-center text-slate-900"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="block text-md font-bold text-slate-700">شماره ثبت قانونی فروشگاه</label>
+                          <input
+                            type="text"
+                            value={invoiceSellerEconomicId}
+                            onChange={(e) => setInvoiceSellerEconomicId(e.target.value)}
+                            className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-md font-mono text-center text-slate-900"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5 col-span-2">
+                          <label className="block text-md font-bold text-slate-700">آدرس انبار / دفتر مرکزی</label>
+                          <input
+                            type="text"
+                            value={invoiceSellerAddress}
+                            onChange={(e) => setInvoiceSellerAddress(e.target.value)}
+                            className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-md font-medium text-slate-900"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* Stock Search section */}
+                  <div className="space-y-6">
+                    
+                    <div className="bg-indigo-50/50 p-6 rounded-2xl border-2 border-indigo-100 space-y-4">
+                      
+                      <div className="flex items-center gap-2 border-b border-indigo-100 pb-2 mb-2">
+                        <span className="w-2.5 h-2.5 bg-indigo-500 rounded-full" />
+                        <h4 className="text-lg font-black text-indigo-900">جستجوی محصول در انبار و الحاق به لیست فاکتور</h4>
+                      </div>
+
+                      {/* Live search input */}
+                      <div className="space-y-2">
+                        <label className="block text-md font-bold text-indigo-900 font-black">نام کالا یا بارکد را وارد کنید:</label>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            placeholder="مثلاً: شیر توپی، لوله..."
+                            value={invoiceItemSearchQuery}
+                            onChange={(e) => setInvoiceItemSearchQuery(e.target.value)}
+                            className="w-full px-4 py-3 border-2 border-indigo-200 rounded-xl text-lg font-bold text-slate-900 focus:border-indigo-500 focus:outline-none"
+                          />
+                          {invoiceItemSearchQuery && (
+                            <button
+                              type="button"
+                              onClick={() => setInvoiceItemSearchQuery('')}
+                              className="absolute inset-y-0 left-3 flex items-center pr-2 text-slate-400 hover:text-slate-600"
+                            >
+                              <X className="w-5 h-5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Live suggestion list */}
+                      {invoiceItemSearchQuery.trim() !== '' && (
+                        <div className="bg-white border-2 border-indigo-150 rounded-xl max-h-56 overflow-y-auto divide-y shadow-lg">
+                          {items.filter(it => 
+                            it.name.toLowerCase().includes(invoiceItemSearchQuery.toLowerCase()) ||
+                            it.barcode.includes(invoiceItemSearchQuery) ||
+                            it.purchaseLocation.toLowerCase().includes(invoiceItemSearchQuery.toLowerCase())
+                          ).length === 0 ? (
+                            <p className="p-3.5 text-center text-slate-500 font-bold">هیچ کالایی یافت نشد.</p>
+                          ) : (
+                            items.filter(it => 
+                              it.name.toLowerCase().includes(invoiceItemSearchQuery.toLowerCase()) ||
+                              it.barcode.includes(invoiceItemSearchQuery) ||
+                              it.purchaseLocation.toLowerCase().includes(invoiceItemSearchQuery.toLowerCase())
+                            ).map(it => (
+                              <button
+                                type="button"
+                                key={`search-pick-li-${it.id}`}
+                                onClick={() => selectProductForInvoiceCreator(it)}
+                                className="w-full text-right p-3.5 hover:bg-slate-50 text-slate-900 font-bold text-sm block transition-colors border-none"
+                              >
+                                {it.name} <span className="text-xs bg-slate-100 text-slate-600 px-2.5 py-0.5 rounded-full mr-1.5 font-bold">موجودی انبار: {toPersianDigits(it.quantity)}</span> <span className="text-xs text-indigo-700 font-mono font-black ml-2">قیمت: {formatPrice(it.sellingPrice)}</span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+
+                      {/* Picked item editor card */}
+                      {invoiceSelectedProduct ? (
+                        <div className="p-4 bg-white border border-indigo-200 rounded-xl space-y-4 animate-in fade-in duration-200 text-right">
+                          <div className="text-md text-slate-800 font-bold">
+                            <span className="text-xs text-indigo-600 block font-black">جنس برگزیده از لیست انبار شما:</span>
+                            <span className="text-lg font-black text-indigo-950 leading-snug">{invoiceSelectedProduct.name}</span>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4">
+                            
+                            {/* Quantity selection */}
+                            <div className="space-y-1.5">
+                              <label className="block text-xs font-black text-slate-600">تعداد کالا برای فاکتور:</label>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setInvoiceProductQty(prev => Math.max(1, prev - 1))}
+                                  className="bg-slate-200 font-extrabold w-10 h-10 rounded-lg text-lg flex items-center justify-center cursor-pointer hover:bg-indigo-150"
+                                >
+                                  -
+                                </button>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max={invoiceSelectedProduct.quantity}
+                                  value={invoiceProductQty}
+                                  onChange={(e) => setInvoiceProductQty(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                                  className="w-full text-center py-2 text-md font-bold border rounded-lg"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setInvoiceProductQty(prev => prev + 1)}
+                                  className="bg-slate-200 font-extrabold w-10 h-10 rounded-lg text-lg flex items-center justify-center cursor-pointer hover:bg-indigo-150"
+                                >
+                                  +
+                                </button>
+                              </div>
+                              <span className="text-xs font-semibold text-slate-500 text-center block mt-1">حداکثر موجودی برای جابجایی: {toPersianDigits(invoiceSelectedProduct.quantity)} عدد</span>
+                            </div>
+
+                            {/* Cost customization */}
+                            <div className="space-y-1.5">
+                              <label className="block text-xs font-black text-slate-600">قیمت فروش واحد مقتضی فاکتور جدید (تومان):</label>
+                              <input
+                                type="number"
+                                value={invoiceProductPrice}
+                                onChange={(e) => setInvoiceProductPrice(e.target.value === '' ? '' : Number(e.target.value))}
+                                className="w-full px-3 py-2 text-md font-mono font-bold text-slate-900 border rounded-lg focus:border-indigo-500 focus:outline-none"
+                              />
+                              <span className="text-xs font-bold text-emerald-600 text-center block mt-1">قیمت فروش پیش‌فرض کالا انبار: {formatPrice(invoiceSelectedProduct.sellingPrice)}</span>
+                            </div>
+
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={addProductToInvoiceDraft}
+                            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 rounded-xl border-b-4 border-indigo-800 shadow-md flex items-center justify-center gap-2 cursor-pointer transition text-md active:scale-95 m-0"
+                          >
+                            <Plus className="w-5 h-5 text-white" />
+                            <span>➕ افزودن این کالا به جدول فاکتور رسمی</span>
+                          </button>
+
+                        </div>
+                      ) : (
+                        <div className="text-center p-6 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 font-bold text-md leading-relaxed">
+                          👈 نام یا بارکد محصولِ داخل انبار را جستجو کرده و با کلیک بر روی آن، تعداد و قیمت دلخواه را ثبت کنید.
+                        </div>
+                      )}
+
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 text-right">
+                      
+                      <div className="space-y-1.5">
+                        <label className="block text-md font-bold text-slate-700">تاریخ فاکتور</label>
+                        <div className="grid grid-cols-3 gap-2">
+                          
+                          {/* Day selector */}
+                          <div className="space-y-0.5">
+                            <span className="text-xs text-slate-400 font-bold">روز</span>
+                            <select
+                              id="invoice-date-day-select"
+                              value={invoiceDay}
+                              onChange={(e) => { triggerBeep('click'); setInvoiceDay(e.target.value); }}
+                              className="w-full bg-slate-50 border-2 border-slate-200 py-2.5 px-1 md:px-2 rounded-xl text-md font-black text-slate-900 focus:border-indigo-500 focus:outline-none"
+                            >
+                              {Array.from({ length: 31 }, (_, i) => {
+                                const val = String(i + 1).padStart(2, '0');
+                                return <option key={val} value={val}>{toPersianDigits(val)}</option>;
+                              })}
+                            </select>
+                          </div>
+
+                          {/* Month selector */}
+                          <div className="space-y-0.5">
+                            <span className="text-xs text-slate-400 font-bold">ماه</span>
+                            <select
+                              id="invoice-date-month-select"
+                              value={invoiceMonth}
+                              onChange={(e) => { triggerBeep('click'); setInvoiceMonth(e.target.value); }}
+                              className="w-full bg-slate-50 border-2 border-slate-200 py-2.5 px-1 md:px-2 rounded-xl text-md font-black text-slate-900 focus:border-indigo-500 focus:outline-none"
+                            >
+                              {[
+                                { id: '01', name: 'فروردین' },
+                                { id: '02', name: 'اردیبهشت' },
+                                { id: '03', name: 'خرداد' },
+                                { id: '04', name: 'تیر' },
+                                { id: '05', name: 'مرداد' },
+                                { id: '06', name: 'شهریور' },
+                                { id: '07', name: 'مهر' },
+                                { id: '08', name: 'آبان' },
+                                { id: '09', name: 'آذر' },
+                                { id: '10', name: 'دی' },
+                                { id: '11', name: 'بهمن' },
+                                { id: '12', name: 'اسفند' },
+                              ].map((m) => (
+                                <option key={m.id} value={m.id}>{m.name}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Year selector */}
+                          <div className="space-y-0.5">
+                            <span className="text-xs text-slate-400 font-bold">سال</span>
+                            <select
+                              id="invoice-date-year-select"
+                              value={invoiceYear}
+                              onChange={(e) => { triggerBeep('click'); setInvoiceYear(e.target.value); }}
+                              className="w-full bg-slate-50 border-2 border-slate-200 py-2.5 px-1 md:px-2 rounded-xl text-md font-black text-slate-900 focus:border-indigo-500 focus:outline-none"
+                            >
+                              {['1405', '1406', '1407', '1408', '1409', '1410'].map(yr => (
+                                <option key={yr} value={yr}>{toPersianDigits(yr)}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-md font-bold text-slate-700">شماره ثبت انحصاری فاکتور</label>
+                        <input
+                          type="text"
+                          value={invoiceNumber}
+                          onChange={(e) => setInvoiceNumber(e.target.value)}
+                          className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl text-lg font-mono text-center text-slate-900 focus:border-indigo-500 focus:outline-none"
+                        />
+                      </div>
+
+                    </div>
+
+                  </div>
+
+                </div>
+
+                {/* Table of products added to invoice */}
+                <div className="space-y-4 text-right">
+                  <div className="flex items-center gap-2 border-b pb-2">
+                    <span className="w-3 h-3 bg-indigo-600 rounded-full" />
+                    <h4 className="text-xl font-black text-slate-900">جدول موقت پیش‌نویس اقلام فاکتور ({toPersianDigits(invoiceItems.length)} قلم کالا)</h4>
+                  </div>
+
+                  {invoiceItems.length === 0 ? (
+                    <div className="text-center p-8 border-4 border-dashed border-slate-200 rounded-3xl text-slate-400 font-bold text-lg">
+                      لیست اقلام آماده ثبت برای مشتری خالی است. از پنل بالا برای جستجو استفاده کنید.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto border border-slate-200 rounded-2xl">
+                      <table className="w-full border-collapse text-sm text-right">
+                        <thead>
+                          <tr className="bg-slate-100 text-slate-700 font-black border-b">
+                            <th className="py-4 px-4 w-12 text-center">ردیف</th>
+                            <th className="py-4 px-4">عنوان محصول</th>
+                            <th className="py-4 px-4 text-center">تعداد (عدد)</th>
+                            <th className="py-4 px-4 text-center">بهای واحد (تومان)</th>
+                            <th className="py-4 px-4 text-center">بهای کل (تومان)</th>
+                            <th className="py-4 px-4 text-center w-24">اقدام</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-md">
+                          {invoiceItems.map((it, idx) => (
+                            <tr key={it.id} className="hover:bg-slate-50/50">
+                              <td className="py-4 px-4 text-center font-bold">{toPersianDigits(idx + 1)}</td>
+                              <td className="py-4 px-4 font-black text-slate-900">{it.name}</td>
+                              <td className="py-4 px-4 text-indigo-900 font-bold text-center text-lg">{toPersianDigits(it.quantity)}</td>
+                              <td className="py-4 px-4 text-center font-bold font-mono">{toPersianDigits(it.unitPrice.toLocaleString('en-US'))}</td>
+                              <td className="py-4 px-4 text-center font-black font-mono text-slate-900">{toPersianDigits(it.totalPrice.toLocaleString('en-US'))}</td>
+                              <td className="py-4 px-4 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => removeProductFromInvoiceDraft(it.id)}
+                                  className="text-rose-500 hover:text-rose-700 p-2 rounded-xl hover:bg-rose-50 cursor-pointer"
+                                  title="حذف جنس"
+                                >
+                                  <Trash2 className="w-5 h-5" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* Math breakdown, tax discounts, stock reduction check */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-4 border-t items-start text-right">
+                  
+                  {/* Descriptions */}
+                  <div className="space-y-1.5 col-span-1 lg:col-span-2">
+                    <label className="block text-md font-bold text-slate-700">توضیحات تکمیلی فاکتور فروش (ملاحظات باربری، چک‌ها یا تخفیفات ویژه):</label>
+                    <textarea
+                      placeholder="اینجا بنویسید (مثلاً: نحوه تسویه به صورت چک بانکی ۴۵ روزه به عهده آقای کریمی می‌باشد...)"
+                      value={invoiceDescription}
+                      onChange={(e) => setInvoiceDescription(e.target.value)}
+                      rows={4}
+                      className="w-full px-4 py-3 border border-slate-300 rounded-xl text-md font-medium text-slate-900 focus:border-indigo-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 space-y-4">
+                    <div className="flex justify-between items-center text-sm font-bold text-slate-600 border-b pb-2">
+                      <span>جمع خالص کالاها:</span>
+                      <span className="font-mono font-bold text-slate-950">
+                        {invoiceItems.length > 0 ? formatPrice(invoiceItems.reduce((acc, x) => acc + x.totalPrice, 0)) : '۰ تومان'}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-black text-slate-600">میزان کل تخفیف نقدی مشتری (تومان):</label>
+                      <input
+                        type="number"
+                        placeholder="مثلا ۱۰۰۰۰ تومان"
+                        value={invoiceDiscount}
+                        onChange={(e) => setInvoiceDiscount(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))}
+                        className="w-full px-3 py-2 text-md font-mono font-bold border rounded-lg focus:outline-none text-rose-700 bg-white"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-black text-slate-600">درصد اعمال مالیات بر ارزش افزوده (VAT):</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          value={invoiceTaxRate}
+                          onChange={(e) => setInvoiceTaxRate(Math.max(0, Number(e.target.value) || 0))}
+                          className="w-20 px-3 py-2 text-md font-mono text-center font-bold border rounded-lg focus:outline-none bg-white"
+                        />
+                        <span className="text-sm font-bold text-slate-500">درصد مالیات (پیش‌فرض ۹٪)</span>
+                      </div>
+                    </div>
+
+                    {/* Checkbox for dynamic depletion of warehouse quantities */}
+                    {!invoiceId && (
+                      <label className="flex items-start gap-2.5 p-2 bg-indigo-50 border border-indigo-100 rounded-xl cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={deductFromStock}
+                          onChange={(e) => setDeductFromStock(e.target.checked)}
+                          className="w-5 h-5 text-indigo-600 border-slate-300 rounded focus:ring-0 mt-0.5 cursor-pointer"
+                        />
+                        <span className="text-xs font-black text-indigo-950 leading-snug">
+                          ✔️ کسر اتوماتیک از تعداد موجودی اجناس فعلی انبار پس از نهایی‌سازی فاکتور
+                        </span>
+                      </label>
+                    )}
+
+                    <div className="border-t pt-3 flex justify-between items-center text-lg font-black text-indigo-950">
+                      <span>مبلغ قابل پرداخت نهایی:</span>
+                      <span className="font-mono text-indigo-900">
+                        {formatPrice(
+                          (() => {
+                            const before = invoiceItems.reduce((acc, x) => acc + x.totalPrice, 0);
+                            const discountVal = Number(invoiceDiscount) || 0;
+                            const afterDiscount = Math.max(0, before - discountVal);
+                            const calculatedTax = Math.round(afterDiscount * (invoiceTaxRate / 100));
+                            return afterDiscount + calculatedTax;
+                          })()
+                        )}
+                      </span>
+                    </div>
+
+                  </div>
+
+                </div>
+
+                {/* Final Buttons */}
+                <div className="flex flex-col sm:flex-row items-center justify-end gap-4 border-t pt-6">
+                  <button
+                    type="submit"
+                    className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-black px-12 py-5 rounded-2xl border-b-4 border-indigo-800 shadow-xl transition cursor-pointer flex items-center justify-center gap-3 text-xl active:scale-[0.98] m-0"
+                  >
+                    <Check className="w-7 h-7" />
+                    <span>💾 ثبت و صادر کردن این فاکتور</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => { triggerBeep('click'); setIsCreatingInvoice(false); }}
+                    className="w-full sm:w-auto bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-8 py-5 rounded-2xl transition cursor-pointer text-lg text-center"
+                  >
+                    <span>❌ لغو و بازگردانی پیش‌نویس</span>
+                  </button>
+                </div>
+
+              </form>
+            )}
+
+            {/* VIEW 3: Main list of historical Invoices */}
+            {!viewingInvoice && !isCreatingInvoice && (
+              <div className="space-y-6">
+                
+                {/* Search / Filter header info */}
+                <div className="bg-white p-6 md:p-8 rounded-3xl shadow-xl border-4 border-indigo-100 flex flex-col md:flex-row items-center justify-between gap-6">
+                  <div className="space-y-1 text-right">
+                    <h3 className="text-2xl font-black text-indigo-950">🧾 فاکتورهای فروش صادر شده</h3>
+                    <p className="text-md text-slate-500 font-bold">مدیریت مالی مشتریان، صادر کردن قبض کالا، چاپ رسمی فاکتور و پیگیری موجودی انبار</p>
+                  </div>
+
+                  <button
+                    id="new-invoice-action-btn"
+                    onClick={startCreateInvoice}
+                    className="w-full md:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-black px-8 py-5.5 rounded-3xl shadow-xl flex items-center justify-center gap-2.5 cursor-pointer border-b-4 border-indigo-800 transition active:scale-[0.98] text-xl m-0"
+                  >
+                    <Plus className="w-7 h-7" />
+                    <span>➕ صدور فاکتور رسمی جدید</span>
+                  </button>
+                </div>
+
+                {/* Store Settings Collapsible Card */}
+                <div className="bg-white rounded-3xl shadow-lg border-4 border-indigo-100 overflow-hidden text-right">
+                  <button
+                    type="button"
+                    onClick={() => { triggerBeep('click'); setShowStoreSettings(!showStoreSettings); }}
+                    className="w-full flex items-center justify-between p-5 md:p-6 bg-slate-50 border-b-2 border-slate-100 cursor-pointer hover:bg-indigo-50/50 transition"
+                  >
+                    <div className="flex items-center gap-3.5">
+                      <div className="bg-indigo-100 p-2.5 rounded-xl text-indigo-700">
+                        <Settings className="w-7 h-7" />
+                      </div>
+                      <div className="text-right">
+                        <span className="text-lg md:text-xl font-black text-indigo-950 block">⚙️ تنظیمات مشخصات دائمی فروشگاه (حق چاپ فاکتور)</span>
+                        <span className="text-xs text-slate-500 font-bold block mt-0.5">ثبت یکبار نام فروشگاه، شماره تلفن و آدرس رسمی شما برای ظاهر شدن در تمام فاکتورها</span>
+                      </div>
+                    </div>
+                    <div>
+                      {showStoreSettings ? (
+                        <ChevronUp className="w-7 h-7 text-indigo-600" />
+                      ) : (
+                        <ChevronDown className="w-7 h-7 text-indigo-600" />
+                      )}
+                    </div>
+                  </button>
+
+                  {showStoreSettings && (
+                    <div className="p-6 space-y-5 bg-white text-right animate-in fade-in slide-in-from-top-4 duration-200">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        
+                        <div className="space-y-1.5 md:col-span-1">
+                          <label className="block text-md font-bold text-slate-700">نام فروشگاه شما / نام فروشنده:</label>
+                          <input
+                            type="text"
+                            placeholder="مثلاً: ابزارآلات کرمی، فروشگاه برادران حسینی"
+                            value={storeName}
+                            onChange={(e) => setStoreName(e.target.value)}
+                            className="w-full px-4 py-3 border-2 border-slate-250 bg-slate-50/50 focus:bg-white focus:border-indigo-500 text-lg font-bold text-slate-900 rounded-xl focus:outline-none"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5 md:col-span-1">
+                          <label className="block text-md font-bold text-slate-700">تلفن تماس فروشگاه تان:</label>
+                          <input
+                            type="text"
+                            placeholder="مثلاً: ۰۲۱-۵۵۶۶۷۷۸۸"
+                            value={storePhone}
+                            onChange={(e) => setStorePhone(e.target.value)}
+                            className="w-full px-4 py-3 border-2 border-slate-250 bg-slate-50/50 focus:bg-white focus:border-indigo-500 text-lg font-bold text-slate-900 rounded-xl focus:outline-none"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5 md:col-span-1">
+                          <label className="block text-md font-bold text-slate-700">شماره ثبت قانونی / کد اقتصادی فروشگاه:</label>
+                          <input
+                            type="text"
+                            placeholder="مثلاً: ۴۱۱۱۲۲۳۳۴۴۵۵"
+                            value={storeEconomicId}
+                            onChange={(e) => setStoreEconomicId(e.target.value)}
+                            className="w-full px-4 py-3 border-2 border-slate-250 bg-slate-50/50 focus:bg-white focus:border-indigo-500 text-lg font-bold text-slate-900 rounded-xl focus:outline-none"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5 md:col-span-2">
+                          <label className="block text-md font-bold text-slate-700">نشانی دقیق محل کار یا فروشگاه شما:</label>
+                          <textarea
+                            rows={2}
+                            placeholder="مثلاً: تهران، بازار آهن شادآباد، مجتمع تجاری آذرشمس، پلاک ۱۱۰"
+                            value={storeAddress}
+                            onChange={(e) => setStoreAddress(e.target.value)}
+                            className="w-full px-4 py-3 border-2 border-slate-250 bg-slate-50/50 focus:bg-white focus:border-indigo-500 text-lg font-bold text-slate-900 rounded-xl focus:outline-none resize-none leading-relaxed"
+                          />
+                        </div>
+
+                      </div>
+
+                      <div className="flex justify-start border-t pt-4">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            triggerBeep('success');
+                            localStorage.setItem('azarshams_store_name', storeName);
+                            localStorage.setItem('azarshams_store_phone', storePhone);
+                            localStorage.setItem('azarshams_store_economic_id', storeEconomicId);
+                            localStorage.setItem('azarshams_store_address', storeAddress);
+                            
+                            // Immediately update draft defaults so everything starts prefilled correctly
+                            setInvoiceSellerName(storeName);
+                            setInvoiceSellerPhone(storePhone);
+                            setInvoiceSellerEconomicId(storeEconomicId);
+                            setInvoiceSellerAddress(storeAddress);
+                            
+                            showNotification("مشخصات دائمی فروشگاه شما با موفقیت در مرورگر ثبت شد. از این پس فاکتورها با همین مشخصات صادر می‌شوند.", "success");
+                            setShowStoreSettings(false);
+                          }}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-8 py-4 rounded-2xl shadow-lg border-b-4 border-indigo-800 transition active:scale-[0.98] text-lg cursor-pointer"
+                        >
+                          💾 ذخیره نهایی مشخصات فروشگاه من
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Search bar specifically for invoices list by customer or invoice-number */}
+                {invoices.length === 0 ? (
+                  <div className="bg-white p-14 rounded-3xl text-center border-4 border-indigo-100 shadow-xl space-y-4">
+                    <div className="bg-indigo-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto">
+                      <Receipt className="w-12 h-12 text-indigo-400" />
+                    </div>
+                    <h4 className="text-2xl font-black text-slate-700">هیچ فاکتور فروشی صادر نشده است</h4>
+                    <p className="text-slate-400 max-w-lg mx-auto font-bold text-md leading-relaxed">
+                      تاکنون هیچ فاکتور فروش رسمی برای مشتریان محترم صادر نکردید. با کلیک بر روی کلید بنفش بالا، اولین فاکتور فروش تان را با جستجوی مستقیم کالاها از انبار بسازید.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 text-right">
+                    {invoices.map(inv => {
+                      const totalQty = inv.items.reduce((acc, x) => acc + x.quantity, 0);
+                      return (
+                        <div
+                          key={`invcard-${inv.id}`}
+                          className="bg-white rounded-3xl p-6 shadow-lg border-2 border-slate-150 hover:border-indigo-300 transition-all space-y-4 relative"
+                        >
+                          <div className="flex justify-between items-center bg-slate-50 p-2.5 rounded-2xl border mb-3">
+                            <span className="font-mono text-xs font-black text-indigo-900 bg-indigo-100 px-3 py-1 rounded-xl">
+                              {toPersianDigits(inv.invoiceNumber)}
+                            </span>
+                            <span className="text-xs font-bold text-slate-500">
+                              🕒 {toPersianDigits(inv.date)}
+                            </span>
+                          </div>
+
+                          <div className="space-y-1">
+                            <span className="text-xs text-slate-400 font-bold block">نام خریدار / مشتری تان:</span>
+                            <p className="text-lg font-black text-slate-900 truncate">
+                              {inv.buyerName}
+                            </p>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 text-xs font-bold text-slate-600 bg-slate-50/50 p-3 rounded-xl border">
+                            <div>
+                              <span>نوع اجناس: </span>
+                              <span className="text-indigo-900 font-black">{toPersianDigits(inv.items.length)} ردیف</span>
+                            </div>
+                            <div>
+                              <span>تعداد کل اجناس: </span>
+                              <span className="text-indigo-900 font-black">{toPersianDigits(totalQty)} عدد</span>
+                            </div>
+                          </div>
+
+                          <div className="flex justify-between items-center border-t pt-3.5">
+                            <div>
+                              <span className="text-[10px] text-slate-400 font-bold block">مبلغ دریافتنی نهایی فاکتور:</span>
+                              <span className="font-mono font-black text-indigo-950 text-md">{formatPrice(inv.finalPayable)}</span>
+                            </div>
+
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => { triggerBeep('click'); setViewingInvoice(inv); }}
+                                className="bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold p-2.5 rounded-xl cursor-pointer text-xs flex items-center justify-center border-none"
+                                title="مشاهده رسمی و چاپ"
+                              >
+                                <Printer className="w-5 h-5 animate-pulse" />
+                              </button>
+                              
+                              <button
+                                onClick={() => { triggerBeep('click'); startEditInvoice(inv); }}
+                                className="bg-amber-50 text-amber-700 hover:bg-amber-100 font-bold p-2.5 rounded-xl cursor-pointer text-xs flex items-center justify-center border-none"
+                                title="ویرایش جزئیات"
+                              >
+                                <Edit3 className="w-5 h-5" />
+                              </button>
+
+                              <button
+                                onClick={() => deleteInvoiceRecord(inv.id)}
+                                className="bg-rose-50 text-rose-700 hover:bg-rose-100 font-bold p-2.5 rounded-xl cursor-pointer text-xs flex items-center justify-center border-none"
+                                title="حذف دائم"
+                              >
+                                <Trash2 className="w-5 h-5" />
+                              </button>
+                            </div>
+                          </div>
+
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+              </div>
+            )}
 
           </div>
         )}
